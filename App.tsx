@@ -1,11 +1,51 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { auth } from "./src/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import PermissionsScreen from "./src/screens/PermissionsScreen";
+import LandingScreen from "./src/screens/LandingScreen";
+import AuthScreen from "./src/screens/AuthScreen";
 
 export default function App() {
+  const [permissionsComplete, setPermissionsComplete] = useState(false);
+  const [showLanding, setShowLanding] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.text}>Loading...</Text>
+      </View>
+    );
+  }
+
+  if (!permissionsComplete) {
+    return (
+      <PermissionsScreen onComplete={() => setPermissionsComplete(true)} />
+    );
+  }
+
+  if (!user && showLanding) {
+    return <LandingScreen onGetStarted={() => setShowLanding(false)} />;
+  }
+
+  if (!user && !showLanding) {
+    return <AuthScreen onAuthComplete={() => setUser(auth.currentUser)} />;
+  }
+
   return (
     <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
+      <Text style={styles.text}>Welcome, {user?.email}!</Text>
+      <Text style={styles.subtext}>Dashboard coming next...</Text>
     </View>
   );
 }
@@ -13,8 +53,18 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#0a0f1c",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  text: {
+    color: "#a3e635",
+    fontSize: 24,
+    fontWeight: "600",
+  },
+  subtext: {
+    color: "#94a3b8",
+    fontSize: 16,
+    marginTop: 12,
   },
 });
