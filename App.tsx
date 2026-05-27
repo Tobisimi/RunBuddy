@@ -5,12 +5,16 @@ import { onAuthStateChanged } from "firebase/auth";
 import PermissionsScreen from "./src/screens/PermissionsScreen";
 import LandingScreen from "./src/screens/LandingScreen";
 import AuthScreen from "./src/screens/AuthScreen";
+import OnboardingAgeScreen from "./src/screens/OnboardingAgeScreen";
+import OnboardingNameScreen from "./src/screens/OnboardingNameScreen";
 
 export default function App() {
   const [permissionsComplete, setPermissionsComplete] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [onboardingStep, setOnboardingStep] = useState(0);
+  const [userName, setUserName] = useState("");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -42,10 +46,34 @@ export default function App() {
     return <AuthScreen onAuthComplete={() => setUser(auth.currentUser)} />;
   }
 
+  // User is authenticated – show onboarding
+  if (onboardingStep === 0) {
+    return (
+      <OnboardingNameScreen
+        onNext={(name) => {
+          setUserName(name);
+          setOnboardingStep(1);
+        }}
+      />
+    );
+  }
+
+  if (onboardingStep === 1) {
+    return (
+      <OnboardingAgeScreen
+        onNext={(age) => {
+          console.log("Age:", age);
+          setOnboardingStep(2);
+        }}
+      />
+    );
+  }
+
+  // Temporary placeholder for remaining onboarding steps
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Welcome, {user?.email}!</Text>
-      <Text style={styles.subtext}>Dashboard coming next...</Text>
+      <Text style={styles.text}>Welcome, {userName}!</Text>
+      <Text style={styles.subtext}>Next: Weight, Fitness, Goal, Units</Text>
     </View>
   );
 }
