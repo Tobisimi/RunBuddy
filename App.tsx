@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { auth, db } from "./src/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
@@ -12,6 +12,9 @@ import OnboardingWeightScreen from "./src/screens/OnboardingWeightScreen";
 import OnboardingFitnessScreen from "./src/screens/OnboardingFitnessScreen";
 import OnboardingGoalScreen from "./src/screens/OnboardingGoalScreen";
 import OnboardingUnitsScreen from "./src/screens/OnboardingUnitsScreen";
+import DashboardScreen from "./src/screens/DashboardScreen";
+import ActiveRunScreen from "./src/screens/ActiveRunScreen";
+import { initDatabase, getActiveRun } from "./src/utils/runEngine";
 
 export default function App() {
   const [permissionsComplete, setPermissionsComplete] = useState(false);
@@ -19,7 +22,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [onboardingStep, setOnboardingStep] = useState(0);
-  // Store onboarding data
+  // Onboarding data
   const [userName, setUserName] = useState("");
   const [userAge, setUserAge] = useState(0);
   const [userWeightRange, setUserWeightRange] = useState("");
@@ -28,7 +31,10 @@ export default function App() {
   const [userCustomGoal, setUserCustomGoal] = useState("");
   const [userUnits, setUserUnits] = useState<"km" | "mi">("km");
   const [saving, setSaving] = useState(false);
+  // Resume run
+  const [resumeRunData, setResumeRunData] = useState<any>(null);
 
+  // Auth state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
@@ -37,7 +43,32 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  const saveOnboardingData = async () => {
+  // Init SQLite
+  useEffect(() => {
+    initDatabase();
+  }, []);
+
+  // Check for unfinished run after user is loaded
+  useEffect(() => {
+    const checkUnfinishedRun = async () => {
+      if (!user) return;
+      const active = await getActiveRun();
+      if (active && active.status === "active") {
+        Alert.alert(
+          "Unfinished Run",
+          "You have a run in progress. Resume it?",
+          [
+            { text: "Discard", style: "destructive", onPress: () => {} },
+            { text: "Resume", onPress: () => setResumeRunData(active) },
+          ],
+          { cancelable: false },
+        );
+      }
+    };
+    checkUnfinishedRun();
+  }, [user]);
+
+  const saveOnboardingData = async (units: "km" | "mi") => {
     if (!user) return;
     setSaving(true);
     try {
@@ -48,15 +79,15 @@ export default function App() {
         fitnessLevel: userFitness,
         runningGoal: userGoal,
         customGoal: userCustomGoal || null,
-        unitPreference: userUnits,
+        unitPreference: units,
         email: user.email,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      // Move to dashboard (placeholder for now)
-      setOnboardingStep(6); // finished
+      setOnboardingStep(6); // complete
     } catch (error) {
       console.error("Save error:", error);
+      Alert.alert("Save Failed", "Could not save onboarding data");
     } finally {
       setSaving(false);
     }
@@ -84,6 +115,22 @@ export default function App() {
     return <AuthScreen onAuthComplete={() => setUser(auth.currentUser)} />;
   }
 
+  // Resume active run if present
+  if (resumeRunData) {
+    return (
+      <ActiveRunScreen
+        runType={resumeRunData.goalType || "open"}
+        goalValue={resumeRunData.goalValue || null}
+        coachMode={resumeRunData.coachMode || "motivation"}
+        onEnd={(finalRun) => {
+          setResumeRunData(null);
+          // TODO: Show run summary
+          console.log("Resumed run ended", finalRun);
+        }}
+      />
+    );
+  }
+
   // Onboarding flow
   if (onboardingStep === 0) {
     return (
@@ -95,7 +142,6 @@ export default function App() {
       />
     );
   }
-
   if (onboardingStep === 1) {
     return (
       <OnboardingAgeScreen
@@ -106,7 +152,6 @@ export default function App() {
       />
     );
   }
-
   if (onboardingStep === 2) {
     return (
       <OnboardingWeightScreen
@@ -117,7 +162,6 @@ export default function App() {
       />
     );
   }
-
   if (onboardingStep === 3) {
     return (
       <OnboardingFitnessScreen
@@ -128,7 +172,6 @@ export default function App() {
       />
     );
   }
-
   if (onboardingStep === 4) {
     return (
       <OnboardingGoalScreen
@@ -140,18 +183,16 @@ export default function App() {
       />
     );
   }
-
   if (onboardingStep === 5) {
     return (
       <OnboardingUnitsScreen
         onNext={(units) => {
           setUserUnits(units);
-          saveOnboardingData();
+          saveOnboardingData(units);
         }}
       />
     );
   }
-
   if (saving) {
     return (
       <View style={styles.container}>
@@ -161,15 +202,8 @@ export default function App() {
     );
   }
 
-  // Dashboard placeholder after onboarding complete
-  return (
-    <View style={styles.container}>
-      <Text style={styles.text}>Welcome, {userName}!</Text>
-      <Text style={styles.subtext}>
-        Onboarding complete. Dashboard coming soon.
-      </Text>
-    </View>
-  );
+  // Onboarding complete – show Dashboard
+  return <DashboardScreen userName={userName} />;
 }
 
 const styles = StyleSheet.create({
@@ -181,13 +215,7 @@ const styles = StyleSheet.create({
   },
   text: {
     color: "#a3e635",
-    fontSize: 24,
-    fontWeight: "600",
-    marginTop: 16,
-  },
-  subtext: {
-    color: "#94a3b8",
     fontSize: 16,
-    marginTop: 12,
+    marginTop: 16,
   },
 });

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
 
 export default function OnboardingUnitsScreen({
   onNext,
@@ -7,6 +7,15 @@ export default function OnboardingUnitsScreen({
   onNext: (units: "km" | "mi") => void;
 }) {
   const [selected, setSelected] = useState<"km" | "mi">("km");
+
+  const handleComplete = () => {
+    Alert.alert("Units Selected", `You selected: ${selected}`, [
+      {
+        text: "OK",
+        onPress: () => onNext(selected),
+      },
+    ]);
+  };
 
   return (
     <View style={styles.container}>
@@ -41,7 +50,7 @@ export default function OnboardingUnitsScreen({
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.button} onPress={() => onNext(selected)}>
+      <TouchableOpacity style={styles.button} onPress={handleComplete}>
         <Text style={styles.buttonText}>Complete</Text>
       </TouchableOpacity>
     </View>
