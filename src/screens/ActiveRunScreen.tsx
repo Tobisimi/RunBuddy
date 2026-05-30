@@ -5,29 +5,23 @@ import {
   StyleSheet,
   TouchableOpacity,
   AppState,
-  Platform,
   Alert,
 } from "react-native";
 import MapView, { Polyline, PROVIDER_GOOGLE } from "react-native-maps";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
+import { saveRunToLocal, haversineDistance } from "../utils/runEngine";
 import {
-  saveRunToLocal,
-  getActiveRun,
-  haversineDistance,
-  smoothCoordinates,
-} from "../utils/runEngine";
+  kalmanFilter,
+  initKalmanState,
+  rollingWindowPace,
+  PaceWindowEntry,
+} from "../utils/gps";
+import { useStepCounter } from "../hooks/useStepCounter";
 
 const LOCATION_TASK_NAME = "run-buddy-location-task";
 
-// Define background task
-TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
-  if (error) {
-    console.error("Location task error:", error);
-    return;
-  }
-  // Background location handled – no foreground action needed
-});
+TaskManager.defineTask(LOCATION_TASK_NAME, async () => {});
 
 export default function ActiveRunScreen({
   runType,
@@ -42,45 +36,54 @@ export default function ActiveRunScreen({
 }) {
   const [isRunning, setIsRunning] = useState(true);
   const [isPaused, setIsPaused] = useState(false);
-  const [duration, setDuration] = useState(0); // seconds
-  const [distance, setDistance] = useState(0); // km
-  const [pace, setPace] = useState(0); // min/km
+  const [duration, setDuration] = useState(0);
+  const [distance, setDistance] = useState(0);
+  const [speedKmh, setSpeedKmh] = useState(0);
   const [calories, setCalories] = useState(0);
   const [route, setRoute] = useState<Location.LocationObjectCoords[]>([]);
   const [location, setLocation] = useState<Location.LocationObject | null>(
     null,
   );
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [bestPace, setBestPace] = useState<number>(0);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(
     null,
   );
+  const kalmanRef = useRef<{
+    state: ReturnType<typeof initKalmanState> | null;
+  }>({ state: null });
+  const paceWindowRef = useRef<PaceWindowEntry[]>([]);
   const lastPointRef = useRef<Location.LocationObjectCoords | null>(null);
-  const weightMidpoint = 72; // TODO: fetch from user profile
+  const durationRef = useRef(0);
+  const paceHistoryRef = useRef<number[]>([]);
+  const weightMidpoint = 72;
+  const isStoppedRef = useRef(false);
+
+  const stepData = useStepCounter(isRunning && !isPaused, isPaused);
 
   // Timer
   useEffect(() => {
     if (isRunning && !isPaused) {
       timerRef.current = setInterval(() => {
-        setDuration((prev) => prev + 1);
+        setDuration((prev) => {
+          const newDuration = prev + 1;
+          durationRef.current = newDuration;
+          return newDuration;
+        });
       }, 1000);
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
+    } else if (timerRef.current) clearInterval(timerRef.current);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isRunning, isPaused]);
 
-  // Location tracking
+  // Location tracking (same as before)
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setErrorMsg("Location permission denied");
-        return;
-      }
+      if (status !== "granted") return;
+
       locationSubscription.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
@@ -88,36 +91,79 @@ export default function ActiveRunScreen({
           distanceInterval: 2,
         },
         (newLocation) => {
+          if (isStoppedRef.current) return;
           if (!isRunning || isPaused) return;
-          const coords = newLocation.coords;
-          if (coords.accuracy > 50) return; // discard poor readings
+          const { latitude, longitude, accuracy = 20 } = newLocation.coords;
+          if (accuracy > 50) return;
+
           setLocation(newLocation);
-          const newRoute = [...route, coords];
-          const smoothed = smoothCoordinates(newRoute);
+
+          if (!kalmanRef.current.state) {
+            kalmanRef.current.state = initKalmanState(latitude, longitude);
+          } else {
+            kalmanRef.current.state = kalmanFilter(
+              kalmanRef.current.state,
+              latitude,
+              longitude,
+              accuracy,
+            );
+          }
+          const smoothedLat = kalmanRef.current.state.lat;
+          const smoothedLng = kalmanRef.current.state.lng;
+
+          const smoothedCoord: Location.LocationObjectCoords = {
+            latitude: smoothedLat,
+            longitude: smoothedLng,
+            altitude: newLocation.coords.altitude ?? 0,
+            accuracy,
+            altitudeAccuracy: newLocation.coords.altitudeAccuracy ?? null,
+            heading: newLocation.coords.heading ?? null,
+            speed: newLocation.coords.speed ?? null,
+          };
+
           let newDistance = distance;
           if (lastPointRef.current) {
-            const last = lastPointRef.current;
             const delta = haversineDistance(
-              last.latitude,
-              last.longitude,
-              smoothed.latitude,
-              smoothed.longitude,
+              lastPointRef.current.latitude,
+              lastPointRef.current.longitude,
+              smoothedLat,
+              smoothedLng,
             );
             newDistance += delta;
           }
-          lastPointRef.current = smoothed;
+          lastPointRef.current = smoothedCoord;
+
           setDistance(newDistance);
-          setRoute(newRoute);
-          if (newDistance > 0) {
-            const newPace = duration / 60 / newDistance;
-            setPace(newPace);
+          setRoute((prev) => [...prev, smoothedCoord]);
+
+          paceWindowRef.current.push({
+            timestamp: Date.now(),
+            distanceKm: newDistance,
+          });
+          const paceMinPerKm = rollingWindowPace(paceWindowRef.current);
+          let newSpeedKmh = 0;
+          if (paceMinPerKm > 0) {
+            newSpeedKmh = 60 / paceMinPerKm;
+            setSpeedKmh(newSpeedKmh);
+            if (bestPace === 0 || paceMinPerKm < bestPace) {
+              setBestPace(paceMinPerKm);
+            }
+            paceHistoryRef.current.push(paceMinPerKm);
+            if (paceHistoryRef.current.length > 10)
+              paceHistoryRef.current.shift();
           }
-          const durationHours = duration / 3600;
+
+          const avgPace =
+            paceHistoryRef.current.length > 0
+              ? paceHistoryRef.current.reduce((a, b) => a + b, 0) /
+                paceHistoryRef.current.length
+              : 8.3;
+          const durationHours = durationRef.current / 3600;
           let met = 8.3;
-          if (pace < 5) met = 11.0;
-          else if (pace < 6) met = 9.8;
-          else if (pace < 7) met = 8.3;
-          else if (pace < 8) met = 7.0;
+          if (avgPace < 5) met = 11.0;
+          else if (avgPace < 6) met = 9.8;
+          else if (avgPace < 7) met = 8.3;
+          else if (avgPace < 8) met = 7.0;
           else met = 6.0;
           const newCalories = Math.round(met * weightMidpoint * durationHours);
           setCalories(newCalories);
@@ -126,9 +172,12 @@ export default function ActiveRunScreen({
     })();
 
     return () => {
-      if (locationSubscription.current) locationSubscription.current.remove();
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
+      }
     };
-  }, [isRunning, isPaused, route, distance, duration]);
+  }, [isRunning, isPaused, distance, bestPace]);
 
   // Save to SQLite every 5 seconds
   useEffect(() => {
@@ -136,19 +185,20 @@ export default function ActiveRunScreen({
     const interval = setInterval(async () => {
       const runData = {
         distance,
-        duration,
-        pace,
+        duration: durationRef.current,
+        pace: speedKmh > 0 ? 60 / speedKmh : 0,
+        bestPace,
         calories,
         route,
-        startTime: Date.now() - duration * 1000,
+        startTime: Date.now() - durationRef.current * 1000,
         status: "active" as const,
       };
       await saveRunToLocal(runData);
     }, 5000);
     return () => clearInterval(interval);
-  }, [isRunning, isPaused, distance, duration, pace, calories, route]);
+  }, [isRunning, isPaused, distance, speedKmh, bestPace, calories, route]);
 
-  // Background task on app state change
+  // Background location
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState === "background" && isRunning && !isPaused) {
@@ -171,6 +221,7 @@ export default function ActiveRunScreen({
 
   const pauseRun = () => setIsPaused(true);
   const resumeRun = () => setIsPaused(false);
+
   const stopRun = () => {
     Alert.alert("End Run", "Are you sure?", [
       { text: "Cancel", style: "cancel" },
@@ -178,22 +229,32 @@ export default function ActiveRunScreen({
         text: "Stop",
         style: "destructive",
         onPress: async () => {
+          isStoppedRef.current = true;
+          console.log("Stop button pressed, saving final run...");
           if (timerRef.current) clearInterval(timerRef.current);
-          if (locationSubscription.current)
+          if (locationSubscription.current) {
             locationSubscription.current.remove();
+            locationSubscription.current = null;
+          }
           await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
           const finalRun = {
             distance,
-            duration,
-            pace,
+            duration: durationRef.current,
+            pace: speedKmh > 0 ? 60 / speedKmh : 0,
+            bestPace,
             calories,
             route,
-            startTime: Date.now() - duration * 1000,
+            startTime: Date.now() - durationRef.current * 1000,
             endTime: Date.now(),
             status: "completed",
           };
+          console.log("Calling onEnd with finalRun:", finalRun);
           await saveRunToLocal(finalRun);
-          onEnd(finalRun);
+          if (onEnd) {
+            onEnd(finalRun);
+          } else {
+            console.error("onEnd is undefined");
+          }
         },
       },
     ]);
@@ -206,13 +267,6 @@ export default function ActiveRunScreen({
     return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  const formatPace = (paceMinPerKm: number) => {
-    if (paceMinPerKm === 0 || !isFinite(paceMinPerKm)) return "0:00";
-    const mins = Math.floor(paceMinPerKm);
-    const secs = Math.round((paceMinPerKm - mins) * 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
   return (
     <View style={styles.container}>
       <View style={styles.statsContainer}>
@@ -223,13 +277,33 @@ export default function ActiveRunScreen({
             <Text style={styles.statLabel}>km</Text>
           </View>
           <View style={styles.stat}>
-            <Text style={styles.statValue}>{formatPace(pace)}</Text>
-            <Text style={styles.statLabel}>min/km</Text>
+            <Text style={styles.statValue}>{speedKmh.toFixed(1)}</Text>
+            <Text style={styles.statLabel}>km/h</Text>
           </View>
           <View style={styles.stat}>
             <Text style={styles.statValue}>{calories}</Text>
             <Text style={styles.statLabel}>cal</Text>
           </View>
+        </View>
+
+        <View style={styles.stepRow}>
+          {stepData.supported ? (
+            <>
+              <Text style={styles.stepText}>
+                👟 {stepData.totalSteps.toLocaleString()} steps
+              </Text>
+              {stepData.source === "accelerometer" && (
+                <Text style={styles.stepNote}>~ estimated</Text>
+              )}
+            </>
+          ) : (
+            <Text style={styles.stepNote}>
+              Steps unavailable on this device
+            </Text>
+          )}
+          {stepData.supported && stepData.cadenceSpm > 0 && (
+            <Text style={styles.stepText}>⚡ {stepData.cadenceSpm} spm</Text>
+          )}
         </View>
       </View>
 
@@ -237,10 +311,9 @@ export default function ActiveRunScreen({
         <MapView
           style={styles.map}
           provider={PROVIDER_GOOGLE}
-          showsUserLocation={true}
-          followsUserLocation={true}
+          showsUserLocation
+          followsUserLocation
           showsMyLocationButton={false}
-          mapType="standard"
           customMapStyle={darkMapStyle}
           region={
             location
@@ -261,9 +334,6 @@ export default function ActiveRunScreen({
               }))}
               strokeColor="#a3e635"
               strokeWidth={4}
-              lineDashPattern={
-                route.some((p) => p.accuracy === 0) ? [5, 5] : []
-              }
             />
           )}
         </MapView>
@@ -329,6 +399,14 @@ const styles = StyleSheet.create({
   stat: { alignItems: "center", flex: 1 },
   statValue: { fontSize: 28, fontWeight: "600", color: "#a3e635" },
   statLabel: { fontSize: 14, color: "#94a3b8" },
+  stepRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 12,
+    paddingHorizontal: 20,
+  },
+  stepText: { fontSize: 14, color: "#22d3ee", fontWeight: "500" },
+  stepNote: { fontSize: 10, color: "#94a3b8", marginLeft: 8 },
   mapContainer: {
     flex: 1,
     marginHorizontal: 20,

@@ -5,18 +5,22 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import RunSetupScreen from "./RunSetupScreen";
 import ActiveRunScreen from "./ActiveRunScreen";
+import SummaryScreen from "./SummaryScreen"; // renamed file
 
 export default function DashboardScreen({ userName }: { userName: string }) {
   const [showRunSetup, setShowRunSetup] = useState(false);
   const [showActiveRun, setShowActiveRun] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const [runConfig, setRunConfig] = useState<{
     runType: "distance" | "time" | "open";
     goalValue: number | null;
     coachMode: string;
   } | null>(null);
+  const [completedRunData, setCompletedRunData] = useState<any>(null);
 
   const handleStartRun = (
     runType: "distance" | "time" | "open",
@@ -29,11 +33,28 @@ export default function DashboardScreen({ userName }: { userName: string }) {
   };
 
   const handleEndRun = (runData: any) => {
-    console.log("Run ended:", runData);
+    console.log("handleEndRun received:", runData);
+    setCompletedRunData(runData);
     setShowActiveRun(false);
-    // TODO: Navigate to Run Summary screen
+    // Small delay to ensure state updates
+    setTimeout(() => {
+      setShowSummary(true);
+    }, 50);
   };
 
+  const handleSaveSummary = () => {
+    setShowSummary(false);
+    // Optionally refresh dashboard stats
+  };
+
+  // Debug: log current state
+  console.log("Dashboard state:", {
+    showActiveRun,
+    showSummary,
+    hasData: !!completedRunData,
+  });
+
+  // Render active run screen
   if (showActiveRun && runConfig) {
     return (
       <ActiveRunScreen
@@ -45,9 +66,16 @@ export default function DashboardScreen({ userName }: { userName: string }) {
     );
   }
 
+  // Render summary screen
+  if (showSummary && completedRunData) {
+    return (
+      <SummaryScreen runData={completedRunData} onSave={handleSaveSummary} />
+    );
+  }
+
+  // Dashboard main view
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Greeting + AI Insight pill */}
       <View style={styles.header}>
         <Text style={styles.greeting}>Good to see you, {userName}!</Text>
         <View style={styles.insightPill}>
@@ -55,7 +83,6 @@ export default function DashboardScreen({ userName }: { userName: string }) {
         </View>
       </View>
 
-      {/* Start Run Hero CTA */}
       <TouchableOpacity
         style={styles.startRunButton}
         onPress={() => setShowRunSetup(true)}
@@ -63,7 +90,30 @@ export default function DashboardScreen({ userName }: { userName: string }) {
         <Text style={styles.startRunText}>Start Run</Text>
       </TouchableOpacity>
 
-      {/* Stats Grid */}
+      {/* Test button to force summary (for debugging) */}
+      <TouchableOpacity
+        style={[
+          styles.startRunButton,
+          { backgroundColor: "#22d3ee", marginTop: 10 },
+        ]}
+        onPress={() => {
+          const mockRun = {
+            distance: 2.5,
+            duration: 900,
+            pace: 6.0,
+            bestPace: 5.4,
+            calories: 180,
+            route: [],
+            startTime: Date.now() - 900000,
+            endTime: Date.now(),
+          };
+          setCompletedRunData(mockRun);
+          setShowSummary(true);
+        }}
+      >
+        <Text style={styles.startRunText}>TEST SUMMARY</Text>
+      </TouchableOpacity>
+
       <View style={styles.statsGrid}>
         <View style={styles.statCard}>
           <Text style={styles.statValue}>0</Text>
@@ -83,24 +133,20 @@ export default function DashboardScreen({ userName }: { userName: string }) {
         </View>
       </View>
 
-      {/* AI Coach Card */}
       <TouchableOpacity style={styles.coachCard}>
         <Text style={styles.coachTitle}>🎙️ Ask your coach anything</Text>
       </TouchableOpacity>
 
-      {/* Goal Progress Placeholder */}
       <View style={styles.goalCard}>
         <Text style={styles.goalTitle}>Weekly Goal</Text>
         <Text style={styles.goalProgress}>0 / 25 km</Text>
       </View>
 
-      {/* Recent Runs Placeholder */}
       <View style={styles.recentCard}>
         <Text style={styles.recentTitle}>Recent Runs</Text>
         <Text style={styles.recentEmpty}>No runs yet</Text>
       </View>
 
-      {/* Run Setup Modal */}
       {showRunSetup && (
         <RunSetupScreen
           onStart={handleStartRun}
@@ -112,14 +158,8 @@ export default function DashboardScreen({ userName }: { userName: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0a0f1c",
-    padding: 20,
-  },
-  header: {
-    marginBottom: 24,
-  },
+  container: { flex: 1, backgroundColor: "#0a0f1c", padding: 20 },
+  header: { marginBottom: 24 },
   greeting: {
     fontSize: 24,
     fontWeight: "600",
@@ -133,10 +173,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
   },
-  insightText: {
-    color: "#22d3ee",
-    fontSize: 14,
-  },
+  insightText: { color: "#22d3ee", fontSize: 14 },
   startRunButton: {
     backgroundColor: "#a3e635",
     height: 80,
@@ -145,11 +182,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
   },
-  startRunText: {
-    color: "#0d1322",
-    fontSize: 20,
-    fontWeight: "700",
-  },
+  startRunText: { color: "#0d1322", fontSize: 20, fontWeight: "700" },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -164,16 +197,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     alignItems: "center",
   },
-  statValue: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#a3e635",
-  },
-  statLabel: {
-    fontSize: 14,
-    color: "#94a3b8",
-    marginTop: 4,
-  },
+  statValue: { fontSize: 28, fontWeight: "700", color: "#a3e635" },
+  statLabel: { fontSize: 14, color: "#94a3b8", marginTop: 4 },
   coachCard: {
     backgroundColor: "#0f1524",
     padding: 20,
@@ -183,41 +208,21 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     alignItems: "center",
   },
-  coachTitle: {
-    fontSize: 18,
-    color: "#22d3ee",
-    fontWeight: "600",
-  },
+  coachTitle: { fontSize: 18, color: "#22d3ee", fontWeight: "600" },
   goalCard: {
     backgroundColor: "#0f1524",
     padding: 20,
     borderRadius: 16,
     marginBottom: 24,
   },
-  goalTitle: {
-    fontSize: 16,
-    color: "#f8fafc",
-    marginBottom: 8,
-  },
-  goalProgress: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#a3e635",
-  },
+  goalTitle: { fontSize: 16, color: "#f8fafc", marginBottom: 8 },
+  goalProgress: { fontSize: 24, fontWeight: "700", color: "#a3e635" },
   recentCard: {
     backgroundColor: "#0f1524",
     padding: 20,
     borderRadius: 16,
     marginBottom: 80,
   },
-  recentTitle: {
-    fontSize: 16,
-    color: "#f8fafc",
-    marginBottom: 8,
-  },
-  recentEmpty: {
-    color: "#64748b",
-    textAlign: "center",
-    paddingVertical: 20,
-  },
+  recentTitle: { fontSize: 16, color: "#f8fafc", marginBottom: 8 },
+  recentEmpty: { color: "#64748b", textAlign: "center", paddingVertical: 20 },
 });
