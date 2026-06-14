@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { auth, db } from "./src/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import PermissionsScreen from "./src/screens/PermissionsScreen";
 import LandingScreen from "./src/screens/LandingScreen";
 import AuthScreen from "./src/screens/AuthScreen";
@@ -12,17 +12,19 @@ import OnboardingWeightScreen from "./src/screens/OnboardingWeightScreen";
 import OnboardingFitnessScreen from "./src/screens/OnboardingFitnessScreen";
 import OnboardingGoalScreen from "./src/screens/OnboardingGoalScreen";
 import OnboardingUnitsScreen from "./src/screens/OnboardingUnitsScreen";
-import DashboardScreen from "./src/screens/DashboardScreen";
+import MainApp from "./src/navigation/MainApp";
 import ActiveRunScreen from "./src/screens/ActiveRunScreen";
+import SummaryScreen from "./src/screens/SummaryScreen";
 import { initDatabase, getActiveRun } from "./src/utils/runEngine";
+import { UserContext } from "./src/services/api";
 
 export default function App() {
   const [permissionsComplete, setPermissionsComplete] = useState(false);
   const [showLanding, setShowLanding] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
-  // Onboarding data
   const [userName, setUserName] = useState("");
   const [userAge, setUserAge] = useState(0);
   const [userWeightRange, setUserWeightRange] = useState("");
@@ -31,34 +33,78 @@ export default function App() {
   const [userCustomGoal, setUserCustomGoal] = useState("");
   const [userUnits, setUserUnits] = useState<"km" | "mi">("km");
   const [saving, setSaving] = useState(false);
-  // Resume run
   const [resumeRunData, setResumeRunData] = useState<any>(null);
+  const [resumeRunSummary, setResumeRunSummary] = useState<any>(null);
 
-  // Auth state
+  const userContext: UserContext = useMemo(
+    () => ({
+      name: userName,
+      age: userAge,
+      weightRange: userWeightRange,
+      fitnessLevel: userFitness,
+      goal: userGoal,
+      customGoal: userCustomGoal || null,
+    }),
+    [
+      userName,
+      userAge,
+      userWeightRange,
+      userFitness,
+      userGoal,
+      userCustomGoal,
+    ],
+  );
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
       setLoading(false);
     });
     return unsubscribe;
   }, []);
 
-  // Init SQLite
   useEffect(() => {
     initDatabase();
   }, []);
 
-  // Check for unfinished run after user is loaded
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) return;
+      setProfileLoading(true);
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.runningGoal) {
+            setUserName(data.fullName || "Runner");
+            setUserAge(data.age || 0);
+            setUserWeightRange(data.weightRange || "");
+            setUserFitness(data.fitnessLevel || "");
+            setUserGoal(data.runningGoal || "");
+            setUserCustomGoal(data.customGoal || "");
+            setUserUnits(data.unitPreference || "km");
+            setOnboardingStep(6);
+          }
+        }
+      } catch (err) {
+        console.error("Profile load error:", err);
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+    loadProfile();
+  }, [user]);
+
   useEffect(() => {
     const checkUnfinishedRun = async () => {
-      if (!user) return;
+      if (!user || onboardingStep !== 6) return;
       const active = await getActiveRun();
       if (active && active.status === "active") {
         Alert.alert(
           "Unfinished Run",
           "You have a run in progress. Resume it?",
           [
-            { text: "Discard", style: "destructive", onPress: () => {} },
+            { text: "Discard", style: "destructive" },
             { text: "Resume", onPress: () => setResumeRunData(active) },
           ],
           { cancelable: false },
@@ -66,7 +112,7 @@ export default function App() {
       }
     };
     checkUnfinishedRun();
-  }, [user]);
+  }, [user, onboardingStep]);
 
   const saveOnboardingData = async (units: "km" | "mi") => {
     if (!user) return;
@@ -81,10 +127,16 @@ export default function App() {
         customGoal: userCustomGoal || null,
         unitPreference: units,
         email: user.email,
+        totalRuns: 0,
+        totalDistance: 0,
+        averagePace: 0,
+        totalCalories: 0,
+        weeklyDistance: 0,
+        weeklyGoal: 25,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      setOnboardingStep(6); // complete
+      setOnboardingStep(6);
     } catch (error) {
       console.error("Save error:", error);
       Alert.alert("Save Failed", "Could not save onboarding data");
@@ -93,7 +145,7 @@ export default function App() {
     }
   };
 
-  if (loading) {
+  if (loading || (user && profileLoading)) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#a3e635" />
@@ -112,26 +164,38 @@ export default function App() {
   }
 
   if (!user && !showLanding) {
-    return <AuthScreen onAuthComplete={() => setUser(auth.currentUser)} />;
+    return (
+      <AuthScreen
+        onAuthComplete={() => setUser(auth.currentUser)}
+        onNeedsOnboarding={() => setOnboardingStep(0)}
+      />
+    );
   }
 
-  // Resume active run if present
+  if (resumeRunSummary) {
+    return (
+      <SummaryScreen
+        runData={resumeRunSummary}
+        onSave={() => setResumeRunSummary(null)}
+      />
+    );
+  }
+
   if (resumeRunData) {
     return (
       <ActiveRunScreen
         runType={resumeRunData.goalType || "open"}
         goalValue={resumeRunData.goalValue || null}
         coachMode={resumeRunData.coachMode || "motivation"}
+        userContext={userContext}
         onEnd={(finalRun) => {
           setResumeRunData(null);
-          // TODO: Show run summary
-          console.log("Resumed run ended", finalRun);
+          setResumeRunSummary(finalRun);
         }}
       />
     );
   }
 
-  // Onboarding flow
   if (onboardingStep === 0) {
     return (
       <OnboardingNameScreen
@@ -202,8 +266,7 @@ export default function App() {
     );
   }
 
-  // Onboarding complete – show Dashboard
-  return <DashboardScreen userName={userName} />;
+  return <MainApp userName={userName || "Runner"} userContext={userContext} />;
 }
 
 const styles = StyleSheet.create({

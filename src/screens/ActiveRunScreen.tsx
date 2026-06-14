@@ -18,6 +18,9 @@ import {
   PaceWindowEntry,
 } from "../utils/gps";
 import { useStepCounter } from "../hooks/useStepCounter";
+import { useCoachVoiceSession } from "../hooks/useCoachVoiceSession";
+import CoachVoiceModal from "../components/CoachVoiceModal";
+import { UserContext } from "../services/api";
 
 const LOCATION_TASK_NAME = "run-buddy-location-task";
 
@@ -27,11 +30,13 @@ export default function ActiveRunScreen({
   runType,
   goalValue,
   coachMode,
+  userContext,
   onEnd,
 }: {
   runType: "distance" | "time" | "open";
   goalValue: number | null;
   coachMode: string;
+  userContext: UserContext;
   onEnd: (runData: any) => void;
 }) {
   const [isRunning, setIsRunning] = useState(true);
@@ -61,6 +66,21 @@ export default function ActiveRunScreen({
   const isStoppedRef = useRef(false);
 
   const stepData = useStepCounter(isRunning && !isPaused, isPaused);
+
+  const paceMinPerKm = speedKmh > 0 ? 60 / speedKmh : 0;
+
+  const coachVoice = useCoachVoiceSession({
+    userContext,
+    runContext: {
+      pace: paceMinPerKm,
+      distance,
+      durationSeconds: duration,
+      goalType: runType,
+      coachMode,
+      cadenceSpm: stepData.cadenceSpm,
+    },
+    isLiveRun: true,
+  });
 
   // Timer
   useEffect(() => {
@@ -230,13 +250,17 @@ export default function ActiveRunScreen({
         style: "destructive",
         onPress: async () => {
           isStoppedRef.current = true;
-          console.log("Stop button pressed, saving final run...");
+          setIsRunning(false);
           if (timerRef.current) clearInterval(timerRef.current);
           if (locationSubscription.current) {
             locationSubscription.current.remove();
             locationSubscription.current = null;
           }
-          await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+          try {
+            await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+          } catch {
+            // Task may never have been started if the app stayed in foreground
+          }
           const finalRun = {
             distance,
             duration: durationRef.current,
@@ -246,15 +270,14 @@ export default function ActiveRunScreen({
             route,
             startTime: Date.now() - durationRef.current * 1000,
             endTime: Date.now(),
-            status: "completed",
+            status: "completed" as const,
           };
-          console.log("Calling onEnd with finalRun:", finalRun);
-          await saveRunToLocal(finalRun);
-          if (onEnd) {
-            onEnd(finalRun);
-          } else {
-            console.error("onEnd is undefined");
+          try {
+            await saveRunToLocal(finalRun);
+          } catch (err) {
+            console.error("Failed to save run locally:", err);
           }
+          onEnd(finalRun);
         },
       },
     ]);
@@ -358,10 +381,17 @@ export default function ActiveRunScreen({
 
       <TouchableOpacity
         style={styles.coachButton}
-        onPress={() => alert("Coach coming soon")}
+        onPress={coachVoice.toggleVoiceSession}
       >
         <Text style={styles.coachButtonText}>🎙️ Talk to Coach</Text>
       </TouchableOpacity>
+
+      <CoachVoiceModal
+        visible={coachVoice.modalVisible}
+        orbState={coachVoice.orbState}
+        statusText={coachVoice.statusText}
+        onDismiss={coachVoice.closeSession}
+      />
     </View>
   );
 }

@@ -8,21 +8,39 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { auth } from "../lib/firebase";
+import { auth, db } from "../lib/firebase";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
 } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { useGoogleAuth } from "../hooks/useGoogleAuth";
 
 export default function AuthScreen({
   onAuthComplete,
+  onNeedsOnboarding,
 }: {
   onAuthComplete: () => void;
+  onNeedsOnboarding: () => void;
 }) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const { request, signInWithGoogle } = useGoogleAuth();
+
+  const routeAfterAuth = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const snap = await getDoc(doc(db, "users", user.uid));
+    if (snap.exists() && snap.data().runningGoal) {
+      onAuthComplete();
+    } else {
+      onNeedsOnboarding();
+      onAuthComplete();
+    }
+  };
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -34,11 +52,12 @@ export default function AuthScreen({
     try {
       if (isSignUp) {
         await createUserWithEmailAndPassword(auth, email, password);
-        Alert.alert("Success", "Account created! Please sign in.");
-        setIsSignUp(false);
+        Alert.alert("Success", "Account created! Complete onboarding next.");
+        onNeedsOnboarding();
+        onAuthComplete();
       } else {
         await signInWithEmailAndPassword(auth, email, password);
-        onAuthComplete();
+        await routeAfterAuth();
       }
     } catch (error: any) {
       let message = error.message;
@@ -51,6 +70,27 @@ export default function AuthScreen({
       if (error.code === "auth/weak-password")
         message = "Password should be at least 6 characters";
       Alert.alert("Error", message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    if (!request) {
+      Alert.alert(
+        "Not configured",
+        "Add Google OAuth client IDs to your .env file.",
+      );
+      return;
+    }
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+      await routeAfterAuth();
+    } catch (error: any) {
+      if (error.message !== "Google sign-in was cancelled") {
+        Alert.alert("Google Sign-in Failed", error.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -95,6 +135,14 @@ export default function AuthScreen({
               {isSignUp ? "Sign Up" : "Sign In"}
             </Text>
           )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.googleButton}
+          onPress={handleGoogle}
+          disabled={loading || !request}
+        >
+          <Text style={styles.googleButtonText}>Continue with Google</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
@@ -150,11 +198,25 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: "center",
     marginTop: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   buttonText: {
     color: "#0d1322",
     fontSize: 17,
+    fontWeight: "600",
+  },
+  googleButton: {
+    backgroundColor: "#171f33",
+    paddingVertical: 14,
+    borderRadius: 32,
+    alignItems: "center",
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#222b40",
+  },
+  googleButtonText: {
+    color: "#f8fafc",
+    fontSize: 16,
     fontWeight: "600",
   },
   switchText: {

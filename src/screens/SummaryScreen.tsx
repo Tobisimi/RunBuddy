@@ -2,7 +2,6 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 
 export default function SummaryScreen({ runData, onSave }: any) {
-  console.log("SummaryScreen rendered with:", runData);
   return (
     <View style={styles.container}>
       <Text style={styles.title}>✅ Run Completed</Text>

@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User profile — only the signed-in user may read/write their document
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Runs — owner only (create must set userId to auth uid)
+    match /runs/{runId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Coach message log (if used)
+    match /coach_messages/{messageId} {
+      allow read, write: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // Per-user settings / preferences
+    match /user_settings/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Wake word counts — backend only (Admin SDK bypasses rules)
+    match /wake_word_counts/{docId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
