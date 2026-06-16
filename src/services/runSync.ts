@@ -119,6 +119,7 @@ export async function completeRunSession(
       totalDistance,
       averagePace,
       totalCalories: (user.totalCalories || 0) + payload.calories,
+      weeklyDistance: (user.weeklyDistance || 0) + payload.distance,
       updatedAt: endedAt,
     },
     { merge: true },

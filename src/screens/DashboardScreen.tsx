@@ -10,11 +10,12 @@ import {
 } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import RunSetupScreen from "./RunSetupScreen";
-import { usersApi } from "../services/api";
+import { usersApi, runsApi } from "../services/api";
 import { startRunSession } from "../services/runSync";
 
 interface DashboardScreenProps {
   userName: string;
+  refreshKey?: number;
   onStartRun: (
     runType: "distance" | "time" | "open",
     goalValue: number | null,
@@ -22,7 +23,13 @@ interface DashboardScreenProps {
     runId: string | null,
   ) => void;
   onOpenCoach: () => void;
-  onUpgrade: () => void;
+}
+
+interface RecentRun {
+  id?: string;
+  distance?: number;
+  durationSeconds?: number;
+  startedAt?: string;
 }
 
 function formatPace(paceMin: number) {
@@ -66,6 +73,7 @@ function FadeUpCard({
 
 export default function DashboardScreen({
   userName,
+  refreshKey = 0,
   onStartRun,
   onOpenCoach,
 }: DashboardScreenProps) {
@@ -79,7 +87,29 @@ export default function DashboardScreen({
     weeklyDistance: 0,
     weeklyGoal: 25,
   });
+  const [recentRuns, setRecentRuns] = useState<RecentRun[]>([]);
   const breathe = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    usersApi
+      .me()
+      .then((data) => {
+        setStats({
+          totalDistance: (data.totalDistance as number) || 0,
+          totalRuns: (data.totalRuns as number) || 0,
+          averagePace: (data.averagePace as number) || 0,
+          totalCalories: (data.totalCalories as number) || 0,
+          weeklyDistance: (data.weeklyDistance as number) || 0,
+          weeklyGoal: (data.weeklyGoal as number) || 25,
+        });
+      })
+      .catch(() => {});
+
+    runsApi
+      .list(3)
+      .then((res) => setRecentRuns((res.runs as RecentRun[]) || []))
+      .catch(() => setRecentRuns([]));
+  }, [refreshKey]);
 
   useEffect(() => {
     Animated.loop(
@@ -97,22 +127,6 @@ export default function DashboardScreen({
       ]),
     ).start();
   }, [breathe]);
-
-  useEffect(() => {
-    usersApi
-      .me()
-      .then((data) => {
-        setStats({
-          totalDistance: (data.totalDistance as number) || 0,
-          totalRuns: (data.totalRuns as number) || 0,
-          averagePace: (data.averagePace as number) || 0,
-          totalCalories: (data.totalCalories as number) || 0,
-          weeklyDistance: (data.weeklyDistance as number) || 0,
-          weeklyGoal: (data.weeklyGoal as number) || 25,
-        });
-      })
-      .catch(() => {});
-  }, []);
 
   const weeklyProgress = Math.min(
     stats.weeklyDistance / stats.weeklyGoal,
@@ -239,11 +253,20 @@ export default function DashboardScreen({
       <FadeUpCard index={3}>
         <View style={styles.recentCard}>
           <Text style={styles.recentTitle}>Recent Runs</Text>
-          <Text style={styles.recentEmpty}>
-            {stats.totalRuns > 0
-              ? `${stats.totalRuns} runs logged`
-              : "No runs yet"}
-          </Text>
+          {recentRuns.length === 0 ? (
+            <Text style={styles.recentEmpty}>No runs yet — start your first!</Text>
+          ) : (
+            recentRuns.map((run) => (
+              <View key={run.id} style={styles.recentRow}>
+                <Text style={styles.recentDistance}>
+                  {(run.distance || 0).toFixed(2)} km
+                </Text>
+                <Text style={styles.recentMeta}>
+                  {Math.floor((run.durationSeconds || 0) / 60)} min
+                </Text>
+              </View>
+            ))
+          )}
         </View>
       </FadeUpCard>
 
@@ -333,4 +356,18 @@ const styles = StyleSheet.create({
   },
   recentTitle: { fontSize: 16, color: "#f8fafc", marginBottom: 8 },
   recentEmpty: { color: "#64748b", textAlign: "center", paddingVertical: 20 },
+  recentRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#222b40",
+  },
+  recentDistance: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#a3e635",
+    fontVariant: ["tabular-nums"],
+  },
+  recentMeta: { fontSize: 14, color: "#94a3b8" },
 });

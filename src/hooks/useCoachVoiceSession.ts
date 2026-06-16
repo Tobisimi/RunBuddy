@@ -43,12 +43,17 @@ interface UseCoachVoiceSessionOptions {
   userContext: UserContext;
   runContext?: RunContext | null;
   isLiveRun?: boolean;
+  onExchange?: (exchange: {
+    transcript: string;
+    response: string;
+  }) => void;
 }
 
 export function useCoachVoiceSession({
   userContext,
   runContext = null,
   isLiveRun = true,
+  onExchange,
 }: UseCoachVoiceSessionOptions) {
   const [modalVisible, setModalVisible] = useState(false);
   const [orbState, setOrbState] = useState<CoachOrbState>("idle");
@@ -172,6 +177,8 @@ export function useCoachVoiceSession({
         isLiveRun,
       });
 
+      onExchange?.({ transcript, response });
+
       setStatusText("On it...");
       const { audioBase64: replyAudio } = await coachApi.tts(response);
       await playBase64Audio(replyAudio);
@@ -180,7 +187,7 @@ export function useCoachVoiceSession({
       setStatusText("Something went wrong. Tap to close.");
       setOrbState("idle");
     }
-  }, [userContext, runContext, isLiveRun, getSorryAudio, playBase64Audio]);
+  }, [userContext, runContext, isLiveRun, getSorryAudio, playBase64Audio, onExchange]);
 
   const startRecording = useCallback(async () => {
     const permission = await Audio.requestPermissionsAsync();

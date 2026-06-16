@@ -20,6 +20,7 @@ import {
 import { useStepCounter } from "../hooks/useStepCounter";
 import { useCoachVoiceSession } from "../hooks/useCoachVoiceSession";
 import CoachVoiceModal from "../components/CoachVoiceModal";
+import CoachOrb from "../components/CoachOrb";
 import { UserContext } from "../services/api";
 
 const LOCATION_TASK_NAME = "run-buddy-location-task";
@@ -382,8 +383,12 @@ export default function ActiveRunScreen({
       <TouchableOpacity
         style={styles.coachButton}
         onPress={coachVoice.toggleVoiceSession}
+        accessibilityLabel="Talk to Coach"
       >
-        <Text style={styles.coachButtonText}>🎙️ Talk to Coach</Text>
+        <CoachOrb
+          state={coachVoice.modalVisible ? coachVoice.orbState : "idle"}
+          size={80}
+        />
       </TouchableOpacity>
 
       <CoachVoiceModal
@@ -420,6 +425,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#f8fafc",
     textAlign: "center",
+    fontVariant: ["tabular-nums"],
   },
   midStats: {
     flexDirection: "row",
@@ -427,7 +433,12 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   stat: { alignItems: "center", flex: 1 },
-  statValue: { fontSize: 28, fontWeight: "600", color: "#a3e635" },
+  statValue: {
+    fontSize: 28,
+    fontWeight: "600",
+    color: "#a3e635",
+    fontVariant: ["tabular-nums"],
+  },
   statLabel: { fontSize: 14, color: "#94a3b8" },
   stepRow: {
     flexDirection: "row",
@@ -451,18 +462,20 @@ const styles = StyleSheet.create({
   },
   controlButton: {
     backgroundColor: "#1a2238",
-    paddingVertical: 12,
-    paddingHorizontal: 30,
-    borderRadius: 40,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: "center",
+    alignItems: "center",
   },
   stopButton: { backgroundColor: "#ef4458" },
   controlText: { color: "#f8fafc", fontSize: 18, fontWeight: "600" },
   coachButton: {
-    backgroundColor: "#22d3ee",
-    margin: 20,
-    paddingVertical: 16,
-    borderRadius: 40,
+    alignSelf: "center",
+    marginBottom: 20,
+    minWidth: 80,
+    minHeight: 80,
+    justifyContent: "center",
     alignItems: "center",
   },
-  coachButtonText: { color: "#0d1322", fontSize: 18, fontWeight: "700" },
 });

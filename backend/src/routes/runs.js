@@ -157,6 +157,7 @@ router.post("/:runId/end", async (req, res) => {
         totalDistance,
         averagePace: newAvgPace,
         totalCalories: (user.totalCalories || 0) + (update.caloriesBurned || 0),
+        weeklyDistance: (user.weeklyDistance || 0) + newDistance,
         updatedAt: endedAt,
       },
       { merge: true },

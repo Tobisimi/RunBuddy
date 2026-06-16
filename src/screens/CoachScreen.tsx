@@ -49,6 +49,13 @@ export default function CoachScreen({
     userContext,
     runContext: null,
     isLiveRun: false,
+    onExchange: ({ transcript, response }) => {
+      setMessages((prev) => [
+        ...prev,
+        { id: `${Date.now()}-u`, role: "user", text: transcript },
+        { id: `${Date.now()}-c`, role: "coach", text: response },
+      ]);
+    },
   });
 
   useEffect(() => {

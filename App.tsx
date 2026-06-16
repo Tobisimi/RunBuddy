@@ -15,7 +15,7 @@ import OnboardingUnitsScreen from "./src/screens/OnboardingUnitsScreen";
 import MainApp from "./src/navigation/MainApp";
 import ActiveRunScreen from "./src/screens/ActiveRunScreen";
 import SummaryScreen from "./src/screens/SummaryScreen";
-import { initDatabase, getActiveRun } from "./src/utils/runEngine";
+import { initDatabase, getActiveRun, clearActiveRun } from "./src/utils/runEngine";
 import { UserContext } from "./src/services/api";
 
 export default function App() {
@@ -104,7 +104,11 @@ export default function App() {
           "Unfinished Run",
           "You have a run in progress. Resume it?",
           [
-            { text: "Discard", style: "destructive" },
+            {
+              text: "Discard",
+              style: "destructive",
+              onPress: () => clearActiveRun(),
+            },
             { text: "Resume", onPress: () => setResumeRunData(active) },
           ],
           { cancelable: false },

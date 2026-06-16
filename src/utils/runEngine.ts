@@ -143,6 +143,43 @@ export async function saveRunToLocal(runData: RunData) {
   await stmt.finalizeAsync();
 }
 
+/** 0–100 run quality score for the summary screen */
+export function calculatePerformanceScore(run: {
+  distance: number;
+  duration: number;
+  pace: number;
+  bestPace: number;
+  goalType?: string;
+  goalValue?: number | null;
+}): number {
+  if (run.duration < 60 || run.distance < 0.1) return 50;
+
+  let completion = 70;
+  if (run.goalType === "distance" && run.goalValue) {
+    completion = Math.min(100, (run.distance / run.goalValue) * 100);
+  } else if (run.goalType === "time" && run.goalValue) {
+    completion = Math.min(100, (run.duration / (run.goalValue * 60)) * 100);
+  } else if (run.distance >= 3) {
+    completion = 85;
+  }
+
+  const paceConsistency =
+    run.pace > 0 && run.bestPace > 0
+      ? Math.max(0, 100 - (run.pace - run.bestPace) * 25)
+      : 75;
+
+  const durationBonus = Math.min(15, run.duration / 120);
+  const score = completion * 0.55 + paceConsistency * 0.35 + durationBonus;
+  return Math.round(Math.min(100, Math.max(0, score)));
+}
+
+export async function clearActiveRun(): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `DELETE FROM runs WHERE status IN ('active', 'paused')`,
+  );
+}
+
 // Get active run (for resume after crash)
 export async function getActiveRun(): Promise<RunData | null> {
   const database = await getDatabase();

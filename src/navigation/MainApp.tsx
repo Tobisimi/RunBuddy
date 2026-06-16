@@ -30,6 +30,7 @@ export default function MainApp({ userName, userContext }: MainAppProps) {
     runId: string | null;
   } | null>(null);
   const [completedRunData, setCompletedRunData] = useState<any>(null);
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
 
   const handleStartRun = (
     runType: "distance" | "time" | "open",
@@ -57,7 +58,11 @@ export default function MainApp({ userName, userContext }: MainAppProps) {
         goalValue: runConfig.goalValue,
       });
     }
-    setCompletedRunData(runData);
+    setCompletedRunData({
+      ...runData,
+      goalType: runConfig.runType,
+      goalValue: runConfig.goalValue,
+    });
     setRunPhase("summary");
   };
 
@@ -66,6 +71,7 @@ export default function MainApp({ userName, userContext }: MainAppProps) {
     setRunConfig(null);
     setRunPhase("idle");
     setActiveTab("home");
+    setDashboardRefreshKey((k) => k + 1);
   };
 
   if (showPremium) {
@@ -111,6 +117,7 @@ export default function MainApp({ userName, userContext }: MainAppProps) {
         return (
           <DashboardScreen
             userName={userName}
+            refreshKey={dashboardRefreshKey}
             onStartRun={handleStartRun}
             onOpenCoach={() => setActiveTab("coach")}
           />

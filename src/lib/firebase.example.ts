@@ -4,13 +4,12 @@ import { getFirestore } from "firebase/firestore";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyC0F5uLFOhVc3PFaH4s09qzG9Hvgs0NGaM",
-  authDomain: "runbuddy-cb820.firebaseapp.com",
-  projectId: "runbuddy-cb820",
-  storageBucket: "runbuddy-cb820.firebasestorage.app",
-  messagingSenderId: "814258538909",
-  appId: "1:814258538909:web:cd918714657101f6898774",
-  measurementId: "G-FVELCV55MW"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
