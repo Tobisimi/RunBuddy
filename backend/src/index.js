@@ -21,8 +21,9 @@ app.get("/health", (_req, res) => {
 
 try {
   initFirebase();
-} catch (err) {
-  console.warn("Firebase init warning:", err.message);
+  console.log("✅ Firebase initiated");
+} catch (error) {
+  console.error("❌ FIREBASE FAILED:", error.message);
 }
 
 const api = express.Router();
